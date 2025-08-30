@@ -68,14 +68,45 @@ def db_empty():
     return n == 0
 
 def fetch_and_load():
-    url = "https://restcountries.com/v3.1/all?fields=name,cca2,cca3,ccn3,capital,region,subregion,population,area,latlng,languages,flags"
-    data = requests.get(url, timeout=60).json()
+    # Busca robusta com validações
+    url = "https://restcountries.com/v3.1/all"
+    params = {
+        "fields": "name,cca2,cca3,ccn3,capital,region,subregion,population,area,latlng,languages,flags"
+    }
+    headers = {"User-Agent": "rest-countries-busca/1.0"}
+
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=60)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Falha de rede ao buscar REST Countries: {e}")
+
+    # Tenta JSON
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError(f"Resposta não é JSON: {resp.text[:200]}")
+
+    # Erro HTTP explícito
+    if resp.status_code != 200:
+        raise RuntimeError(f"REST Countries HTTP {resp.status_code}: {data}")
+
+    # A API pode retornar dict de erro {"status":..., "message":...}
+    if isinstance(data, dict):
+        if {"status", "message"} <= set(data.keys()):
+            raise RuntimeError(f"API error {data.get('status')}: {data.get('message')}")
+        if "name" in data:
+            data = [data]  # normaliza para lista
+
+    if not isinstance(data, list):
+        raise RuntimeError(f"Payload inesperado ({type(data).__name__}): {str(data)[:200]}")
+
     con = connect()
     cur = con.cursor()
     cur.execute("BEGIN;")
     for r in data:
-        name_common   = r.get("name", {}).get("common", "")
-        name_official = r.get("name", {}).get("official", "")
+        # A partir daqui r é um dict do país
+        name_common   = (r.get("name") or {}).get("common", "")
+        name_official = (r.get("name") or {}).get("official", "")
         cca2          = r.get("cca2", "")
         cca3          = r.get("cca3", "")
         ccn3          = r.get("ccn3", "")
